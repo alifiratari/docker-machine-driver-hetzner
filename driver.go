@@ -37,6 +37,8 @@ type Driver struct {
 	danglingKey       bool
 	ServerID          int
 	userData          string
+	SSHUser           string
+	SSHPort           int
 	volumes           []string
 	networks          []string
 	UsePrivateNetwork bool
@@ -46,6 +48,7 @@ type Driver struct {
 const (
 	defaultImage = "ubuntu-18.04"
 	defaultType  = "cx11"
+	defaultSSHUser = "root"
 
 	flagAPIToken          = "hetzner-api-token"
 	flagImage             = "hetzner-image"
@@ -55,6 +58,8 @@ const (
 	flagExKeyID           = "hetzner-existing-key-id"
 	flagExKeyPath         = "hetzner-existing-key-path"
 	flagUserData          = "hetzner-user-data"
+	flagSSHUser           = "hetzner-ssh-user"
+	flagSSHPort           = "hetzner-ssh-port"
 	flagVolumes           = "hetzner-volumes"
 	flagNetworks          = "hetzner-networks"
 	flagUsePrivateNetwork = "hetzner-use-private-network"
@@ -126,6 +131,17 @@ func (d *Driver) GetCreateFlags() []mcnflag.Flag {
 			Usage:  "Cloud-init based User data",
 			Value:  "",
 		},
+		mcnflag.StringFlag{
+			EnvVar: "HETZNER_SSH_USER",
+			Name:   flagSSHUser,
+			Usage:  "If your image/snapshot use different default ssh username, change it.",
+			Value:  defaultSSHUser,
+		},
+		mcnflag.IntFlag{
+			EnvVar: "HETZNER_SSH_PORT",
+			Name:   flagSSHPort,
+			Usage:  "If your image/snapshot use different default ssh port, change it.",
+		},
 		mcnflag.StringSliceFlag{
 			EnvVar: "HETZNER_VOLUMES",
 			Name:   flagVolumes,
@@ -156,6 +172,8 @@ func (d *Driver) SetConfigFromFlags(opts drivers.DriverOptions) error {
 	d.IsExistingKey = d.KeyID != 0
 	d.originalKey = opts.String(flagExKeyPath)
 	d.userData = opts.String(flagUserData)
+	d.SSHUser =  opts.String(flagSSHUser)
+	d.SSHPort =  opts.Int(flagSSHPort)
 	d.volumes = opts.StringSlice(flagVolumes)
 	d.networks = opts.StringSlice(flagNetworks)
 	d.UsePrivateNetwork = opts.Bool(flagUsePrivateNetwork)
@@ -374,6 +392,14 @@ func (d *Driver) destroyDanglingKey() {
 
 func (d *Driver) GetSSHHostname() (string, error) {
 	return d.GetIP()
+}
+
+func (d *Driver) GetSSHUsername() string {
+	return d.SSHUser
+}
+
+func (d *Driver) GetSSHPort() (int, error) {
+	return d.SSHPort, nil
 }
 
 func (d *Driver) GetURL() (string, error) {

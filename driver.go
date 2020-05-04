@@ -33,7 +33,9 @@ type Driver struct {
 	KeyID             int
 	cachedKey         *hcloud.SSHKey
 	IsExistingKey     bool
-	originalKey       string
+	originalKeyPath   string
+	privKey           string
+	pubKey            string
 	danglingKey       bool
 	ServerID          int
 	userData          string
@@ -57,6 +59,8 @@ const (
 	flagLocation          = "hetzner-server-location"
 	flagExKeyID           = "hetzner-existing-key-id"
 	flagExKeyPath         = "hetzner-existing-key-path"
+	flagExKeyPrivKey      = "hetzner-existing-key-priv"
+	flagExKeyPublicKey    = "hetzner-existing-key-pub"
 	flagUserData          = "hetzner-user-data"
 	flagSSHUser           = "hetzner-ssh-user"
 	flagSSHPort           = "hetzner-ssh-port"
@@ -126,6 +130,18 @@ func (d *Driver) GetCreateFlags() []mcnflag.Flag {
 			Value:  "",
 		},
 		mcnflag.StringFlag{
+			EnvVar: "HETZNER_EXISTING_KEY_PRIV",
+			Name:   flagExPrivKey,
+			Usage:  "Path to existing privkey",
+			Value:  "",
+		},
+		mcnflag.StringFlag{
+			EnvVar: "HETZNER_EXISTING_KEY_PUB",
+			Name:   flagExPubKey,
+			Usage:  "Path to existing pubkey",
+			Value:  "",
+		},
+		mcnflag.StringFlag{
 			EnvVar: "HETZNER_USER_DATA",
 			Name:   flagUserData,
 			Usage:  "Cloud-init based User data",
@@ -170,7 +186,9 @@ func (d *Driver) SetConfigFromFlags(opts drivers.DriverOptions) error {
 	d.Type = opts.String(flagType)
 	d.KeyID = opts.Int(flagExKeyID)
 	d.IsExistingKey = d.KeyID != 0
-	d.originalKey = opts.String(flagExKeyPath)
+	d.originalKeyPath = opts.String(flagExKeyPath)
+	d.privKey = opts.String(flagExPrivKey)
+	d.pubKey =  opts.String(flagExPublicKey)
 	d.userData = opts.String(flagUserData)
 	d.SSHUser =  opts.String(flagSSHUser)
 	d.SSHPort =  opts.Int(flagSSHPort)
@@ -193,8 +211,10 @@ func (d *Driver) SetConfigFromFlags(opts drivers.DriverOptions) error {
 
 func (d *Driver) PreCreateCheck() error {
 	if d.IsExistingKey {
-		if d.originalKey == "" {
-			return errors.New("specifying an existing key ID requires the existing key path to be set as well")
+		if d.originalKeyPath == "" {
+			if d.privKey == "" && d.pubKey == "" {
+				return errors.New("specifying an existing key ID requires the existing key path or keypair to be set as well")
+			}
 		}
 
 		key, err := d.getKey()
@@ -202,9 +222,15 @@ func (d *Driver) PreCreateCheck() error {
 			return errors.Wrap(err, "could not get key")
 		}
 
-		buf, err := ioutil.ReadFile(d.originalKey + ".pub")
-		if err != nil {
-			return errors.Wrap(err, "could not read public key")
+		if d.originalKeyPath != "" {
+			if d.pubKey != "" {
+				buf = d.pubKey
+			} else {
+				buf, err := ioutil.ReadFile(d.originalKeyPath + ".pub")
+				if err != nil {
+					return errors.Wrap(err, "could not read public key")
+				}
+			}
 		}
 
 		// Will also parse `ssh-rsa w309jwf0e39jf asdf` public keys
@@ -215,7 +241,7 @@ func (d *Driver) PreCreateCheck() error {
 
 		if key.Fingerprint != ssh.FingerprintLegacyMD5(pubk) &&
 			key.Fingerprint != ssh.FingerprintSHA256(pubk) {
-			return errors.Errorf("remote key %d does not match local key %s", d.KeyID, d.originalKey)
+			return errors.Errorf("remote key %d does not match local key %s", d.KeyID, d.originalKeyPath)
 		}
 	}
 
@@ -239,9 +265,42 @@ func (d *Driver) PreCreateCheck() error {
 }
 
 func (d *Driver) Create() error {
-	if d.originalKey != "" {
+	if d.originalKeyPath != "" {
 		log.Debugf("Copying SSH key...")
-		if err := d.copySSHKeyPair(d.originalKey); err != nil {
+		if d.pubKey != "" && d.privKey != "" {
+			if d.pubKey != "" {
+				os.Remove(f_sshkey.pub)
+				pubkeyfile, err := os.Create("f_sshkey.pub")
+
+				if err != nil {
+					return
+				}
+				defer pubkeyfile.Close()
+				os.Chmod("f_sshkey.pub", 0600)
+				pubkeyfile.WriteString(d.pubKey)
+			} else {
+				return errors.Wrap(err, "could not write public key")
+			}
+
+			if d.privKey != "" {
+				os.Remove(f_sshkey)
+				privkeyfile, err := os.Create("f_sshkey")
+
+				if err != nil {
+					return
+				}
+				defer privkeyfile.Close()
+				os.Chmod("f_sshkey", 0600)
+			
+				privkeyfile.WriteString(d.privKey)
+			} else {
+				return errors.Wrap(err, "could not write priv key")
+			}
+			d.originalKeyPath = f_sshkey
+			
+		}
+	
+		if err := d.copySSHKeyPair(d.originalKeyPath); err != nil {
 			return errors.Wrap(err, "could not copy ssh key pair")
 		}
 	} else {

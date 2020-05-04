@@ -59,8 +59,8 @@ const (
 	flagLocation          = "hetzner-server-location"
 	flagExKeyID           = "hetzner-existing-key-id"
 	flagExKeyPath         = "hetzner-existing-key-path"
-	flagExKeyPrivKey      = "hetzner-existing-key-priv"
-	flagExKeyPublicKey    = "hetzner-existing-key-pub"
+	flagExPrivKey         = "hetzner-existing-key-priv"
+	flagExPubKey          = "hetzner-existing-key-pub"
 	flagUserData          = "hetzner-user-data"
 	flagSSHUser           = "hetzner-ssh-user"
 	flagSSHPort           = "hetzner-ssh-port"
@@ -188,7 +188,7 @@ func (d *Driver) SetConfigFromFlags(opts drivers.DriverOptions) error {
 	d.IsExistingKey = d.KeyID != 0
 	d.originalKeyPath = opts.String(flagExKeyPath)
 	d.privKey = opts.String(flagExPrivKey)
-	d.pubKey =  opts.String(flagExPublicKey)
+	d.pubKey =  opts.String(flagExPubKey)
 	d.userData = opts.String(flagUserData)
 	d.SSHUser =  opts.String(flagSSHUser)
 	d.SSHPort =  opts.Int(flagSSHPort)
@@ -223,25 +223,26 @@ func (d *Driver) PreCreateCheck() error {
 		}
 
 		if d.originalKeyPath != "" {
+			buf := []byte("")
 			if d.pubKey != "" {
-				buf = d.pubKey
+				buf = []byte(d.pubKey)
 			} else {
-				buf, err := ioutil.ReadFile(d.originalKeyPath + ".pub")
+				buf, err = ioutil.ReadFile(d.originalKeyPath + ".pub")
 				if err != nil {
 					return errors.Wrap(err, "could not read public key")
 				}
 			}
-		}
 
-		// Will also parse `ssh-rsa w309jwf0e39jf asdf` public keys
-		pubk, _, _, _, err := ssh.ParseAuthorizedKey(buf)
-		if err != nil {
-			return errors.Wrap(err, "could not parse authorized key")
-		}
+			// Will also parse `ssh-rsa w309jwf0e39jf asdf` public keys
+			pubk, _, _, _, err := ssh.ParseAuthorizedKey(buf)
+			if err != nil {
+				return errors.Wrap(err, "could not parse authorized key")
+			}
 
-		if key.Fingerprint != ssh.FingerprintLegacyMD5(pubk) &&
-			key.Fingerprint != ssh.FingerprintSHA256(pubk) {
-			return errors.Errorf("remote key %d does not match local key %s", d.KeyID, d.originalKeyPath)
+			if key.Fingerprint != ssh.FingerprintLegacyMD5(pubk) &&
+				key.Fingerprint != ssh.FingerprintSHA256(pubk) {
+				return errors.Errorf("remote key %d does not match local key %s", d.KeyID, d.originalKeyPath)
+			}
 		}
 	}
 
@@ -269,34 +270,34 @@ func (d *Driver) Create() error {
 		log.Debugf("Copying SSH key...")
 		if d.pubKey != "" && d.privKey != "" {
 			if d.pubKey != "" {
-				os.Remove(f_sshkey.pub)
+				os.Remove("f_sshkey.pub")
 				pubkeyfile, err := os.Create("f_sshkey.pub")
 
 				if err != nil {
-					return
+					return errors.New("could not create public key file ")
 				}
 				defer pubkeyfile.Close()
 				os.Chmod("f_sshkey.pub", 0600)
 				pubkeyfile.WriteString(d.pubKey)
 			} else {
-				return errors.Wrap(err, "could not write public key")
+				return errors.New("could not write public key")
 			}
 
 			if d.privKey != "" {
-				os.Remove(f_sshkey)
+				os.Remove("f_sshkey")
 				privkeyfile, err := os.Create("f_sshkey")
 
 				if err != nil {
-					return
+					return errors.New("could not create priv key file ")
 				}
 				defer privkeyfile.Close()
 				os.Chmod("f_sshkey", 0600)
 			
 				privkeyfile.WriteString(d.privKey)
 			} else {
-				return errors.Wrap(err, "could not write priv key")
+				return errors.New("could not write priv key")
 			}
-			d.originalKeyPath = f_sshkey
+			d.originalKeyPath = "f_sshkey"
 			
 		}
 	
